@@ -8,21 +8,43 @@ import java.io.File;
 import java.io.IOException;
 
 public class Main {
+    private static CPU6502 cpu;
+    private static PPU ppu;
+    private static Memory memory;
+    private static Memory ppuMemory;
+    private static DisplayWindow displayWindow;
+    private static boolean emulatorRunning = false;
+    
     public static void main(String[] args) throws InterruptedException, IOException {
-
-
-
-        // Create a simple test setup instead of loading .nes file
-        System.out.println("🎮 Creating test PPU display...");
-        Memory memory = new Memory();
-        Memory ppuMemory = new Memory();
+        System.out.println("🎮 Starting NES Emulator with PPU Display...");
+        
+        // Initialize emulator components
+        initializeEmulator();
+        
+        // Create and show the display window
+        displayWindow = new DisplayWindow();
+        displayWindow.setVisible(true);
+        
+        // Enable real-time display
+        ppu.enableRealTimeDisplay(displayWindow);
+        
+        // Start emulator loop
+        startEmulatorLoop();
+        
+        // Cleanup
+        cleanup();
+    }
+    
+    private static void initializeEmulator() {
+        System.out.println("🔧 Initializing emulator components...");
+        
+        memory = new Memory();
+        ppuMemory = new Memory();
         MemoryPage vram = new RamPage(0x800); // 2KB VRAM
         ppuMemory.mapRange(0x2000, 0x2FFF, vram); // mirrors every 0x1000
 
         MemoryPage ram = new RamPage(0x800); // 2KB RAM
         memory.mapRange(0x0000, 0x1FFF, ram); // mirror into full $0000–$1FFF
-
-
 
         // Set correct interrupt vectors manually
         memory.write(0xFFFA, 0x00); memory.write(0xFFFB, 0x80); // NMI → $8000
@@ -34,99 +56,166 @@ public class Main {
         memory.write(0x8001, 0x00); // low byte
         memory.write(0x8002, 0x80); // high byte
 
-
-
         System.out.printf("🧠 memory[0xFFFC] = %02X\n", memory.read(0xFFFC));
         System.out.printf("🧠 memory[0xFFFD] = %02X\n", memory.read(0xFFFD));
         System.out.printf("📍 CPU Reset Vector = %04X\n", memory.readWord(0xFFFC));
 
-
-
-        CPU6502 cpu = new CPU6502(memory, Mode.DEBUG);
-        ClockController clock = new ClockController(1_789_773);
-        //ClockController clock = new ClockController(Integer.MAX_VALUE);
-
-        PPU ppu = new PPU(cpu, Mode.DEBUG, ppuMemory);
+        cpu = new CPU6502(memory, Mode.DEBUG);
+        ppu = new PPU(cpu, Mode.DEBUG, ppuMemory);
         
-        // Create and show the display window
-        DisplayWindow displayWindow = new DisplayWindow();
-        displayWindow.setVisible(true);
-        
-        // Enable real-time display
-        ppu.enableRealTimeDisplay(displayWindow);
-
         // Create a simple test pattern in VRAM
-        for (int row = 0; row < 30; row++) {
-            for (int col = 0; col < 32; col++) {
-                int tileIndex = (row * 32 + col) & 0xFF; // wrap 0–255
-                ppuMemory.write(0x2000 + row * 32 + col, tileIndex);
-            }
-        }
-
-
-        for (int row = 0; row < 30; row++) {
-            for (int col = 0; col < 32; col++) {
-                int tileIndex = (row * 32 + col) & 0xFF; // wrap 0–255
-                ppuMemory.write(0x2000 + row * 32 + col, tileIndex);
-            }
-        }
-
-
+        createTestPattern();
+        
         cpu.reset();
+        System.out.println("✅ Emulator initialized successfully");
+    }
+    
+    private static void createTestPattern() {
+        System.out.println("🎨 Creating test pattern in VRAM...");
+        for (int row = 0; row < 30; row++) {
+            for (int col = 0; col < 32; col++) {
+                int tileIndex = (row * 32 + col) & 0xFF; // wrap 0–255
+                ppuMemory.write(0x2000 + row * 32 + col, tileIndex);
+            }
+        }
+    }
+    
+    public static void loadRom(String romPath) {
+        try {
+            System.out.println("🎮 Loading ROM: " + romPath);
+            
+            // Load the .nes file
+            INESFile inesFile = new INESFile(romPath);
+            
+            // Load PRG ROM into CPU memory
+            if (inesFile.prgRom != null) {
+                System.out.println("📦 Loading PRG ROM (" + inesFile.prgSize + " bytes)");
+                loadPrgRom(inesFile.prgRom);
+            }
+            
+            // Load CHR ROM into PPU memory
+            if (inesFile.chrRom != null) {
+                System.out.println("🎨 Loading CHR ROM (" + inesFile.chrSize + " bytes)");
+                loadChrRom(inesFile.chrRom);
+                ppu.markTilePatternsDirty(); // Mark patterns for regeneration
+            }
+            
+            // Reset the emulator with new ROM data
+            resetEmulator();
+            
+            System.out.println("✅ ROM loaded successfully");
+            
+        } catch (Exception e) {
+            System.err.println("❌ Error loading ROM: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    private static void loadPrgRom(byte[] prgRom) {
+        // Load PRG ROM starting at $8000
+        int startAddress = 0x8000;
+        for (int i = 0; i < prgRom.length && (startAddress + i) < 0x10000; i++) {
+            memory.write(startAddress + i, prgRom[i] & 0xFF);
+        }
+        
+        // If PRG ROM is 16KB, mirror it to $C000-$FFFF
+        if (prgRom.length == 16 * 1024) {
+            for (int i = 0; i < prgRom.length; i++) {
+                memory.write(0xC000 + i, prgRom[i] & 0xFF);
+            }
+        }
+    }
+    
+    private static void loadChrRom(byte[] chrRom) {
+        // Load CHR ROM into PPU memory starting at $0000
+        for (int i = 0; i < chrRom.length && i < 0x2000; i++) {
+            ppuMemory.write(i, chrRom[i] & 0xFF);
+        }
+    }
+    
+    private static void resetEmulator() {
+        System.out.println("🔄 Resetting emulator...");
+        cpu.reset();
+        ppu = new PPU(cpu, Mode.DEBUG, ppuMemory);
+        ppu.enableRealTimeDisplay(displayWindow);
+        emulatorRunning = true;
+    }
+    
+    private static void startEmulatorLoop() {
+        System.out.println("🚀 Starting emulator loop...");
+        emulatorRunning = true;
+        
         int totalCycles = 0;
-
-        // Simple loop that just runs the PPU to generate frames
         long lastSaveTime = System.currentTimeMillis();
         int frameCount = 0;
+        long lastFrameTime = System.nanoTime();
+        final long TARGET_FRAME_TIME_NS = 16_666_667; // 60 FPS = ~16.67ms per frame
         
-        while (displayWindow.isRunning()) {
-            // Simulate CPU cycles (simplified)
-            totalCycles += 1;
+        while (displayWindow.isRunning() && emulatorRunning) {
+            long currentTime = System.nanoTime();
+            long elapsed = currentTime - lastFrameTime;
             
-            // Run PPU at 3x CPU speed (typical NES timing)
-            for (int i = 0; i < 3; i++) {
-                ppu.clock();
-            }
+            // Only process frames at 60 FPS
+            if (elapsed >= TARGET_FRAME_TIME_NS) {
+                // Simulate CPU cycles (simplified)
+                totalCycles += 1;
+                
+                // Run PPU at 3x CPU speed (typical NES timing)
+                for (int i = 0; i < 3; i++) {
+                    ppu.clock();
+                }
 
-            // Throttle to maintain timing
-            if (totalCycles >= 29829) {
-                clock.throttle(totalCycles);
-                totalCycles = 0;
-            }
-            
-            // Save a frame every 5 seconds for debugging
-            long now = System.currentTimeMillis();
-            if (now - lastSaveTime >= 5000) {
-                try {
-                    ppu.renderBackgroundFrame("frame_" + frameCount + ".png");
-                    frameCount++;
-                    lastSaveTime = now;
-                } catch (IOException e) {
-                    System.err.println("Error saving frame: " + e.getMessage());
+                // Throttle to maintain timing
+                if (totalCycles >= 29829) {
+                    totalCycles = 0;
+                }
+                
+                lastFrameTime = currentTime;
+                
+                // Save a frame every 5 seconds for debugging
+                long now = System.currentTimeMillis();
+                if (now - lastSaveTime >= 5000) {
+                    try {
+                        ppu.renderBackgroundFrame("frame_" + frameCount + ".png");
+                        frameCount++;
+                        lastSaveTime = now;
+                    } catch (IOException e) {
+                        System.err.println("Error saving frame: " + e.getMessage());
+                    }
                 }
             }
             
-            // Small delay to prevent overwhelming the system
-            try {
-                Thread.sleep(1);
-            } catch (InterruptedException e) {
-                break;
-            }
-        }
-
-
-
-        if (cpu.getMode() == Mode.DEBUG) {
-            cpu.debugState(memory);
+            // Use yield instead of sleep for better responsiveness
+            Thread.yield();
         }
         
-        // Cleanup
-        ppu.disableRealTimeDisplay();
-        displayWindow.stop();
+        System.out.println("⏹️ Emulator loop stopped");
+    }
+    
+    private static void cleanup() {
+        System.out.println("🧹 Cleaning up...");
+        if (ppu != null) {
+            ppu.disableRealTimeDisplay();
+        }
+        if (displayWindow != null) {
+            displayWindow.stop();
+        }
+        emulatorRunning = false;
         System.out.println("🎮 Emulator stopped.");
-
-
-
+    }
+    
+    // Public method to load ROM from external sources
+    public static void loadRomFromPath(String romPath) {
+        if (emulatorRunning) {
+            loadRom(romPath);
+        }
+    }
+    
+    // Public method to reset the emulator
+    public static void resetEmulatorFromExternal() {
+        if (emulatorRunning) {
+            resetEmulator();
+        }
     }
 
     public static void exportCHRToPNG(MemoryPage chrRom, String filename) throws IOException {
@@ -167,5 +256,4 @@ public class Main {
         ImageIO.write(image, "png", new File(filename));
         System.out.println("🖼️ CHR ROM exported to " + filename);
     }
-
 }

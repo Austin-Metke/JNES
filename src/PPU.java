@@ -12,6 +12,21 @@ public class PPU {
     private static final int SCANLINES_PER_FRAME = 262;
     private static final int CYCLES_PER_SCANLINE = 341;
     private static final int VBLANK_START_LINE = 241;
+    
+    // Performance optimization constants
+    private static final int TILES_PER_ROW = 32;
+    private static final int TILES_PER_COL = 30;
+    private static final int TILE_SIZE = 8;
+    private static final int FRAME_WIDTH = TILES_PER_ROW * TILE_SIZE;
+    private static final int FRAME_HEIGHT = TILES_PER_COL * TILE_SIZE;
+    
+    // Pre-computed color palette for better performance
+    private static final int[] PALETTE_RGB = {
+        0xFFFFFF, // 0 - White
+        0xAAAAAA, // 1 - Light Gray
+        0x555555, // 2 - Dark Gray
+        0x000000  // 3 - Black
+    };
 
     public int getFrameCounter() {
         return frameCounter;
@@ -29,18 +44,64 @@ public class PPU {
     private boolean renderOnNextVBlank = false;
     private DisplayWindow displayWindow;
     private boolean realTimeDisplay = false;
+    
+    // Performance optimization: Frame buffer pooling
+    private BufferedImage[] frameBuffers;
+    private int currentBufferIndex = 0;
+    private int nextBufferIndex = 1;
+    private final Object frameBufferLock = new Object();
+    
+    // Performance optimization: Pre-computed tile patterns
+    private int[][] tilePatterns;
+    private boolean tilePatternsDirty = true;
 
     public PPU(CPU6502 cpu) {
         this.cpu = cpu;
+        initializeFrameBuffers();
+        initializeTilePatterns();
     }
-
 
     public PPU(CPU6502 cpu, Mode mode, Memory memory) {
         this.cpu = cpu;
         this.mode = mode;
         this.ppuMemory = memory;
+        initializeFrameBuffers();
+        initializeTilePatterns();
     }
-
+    
+    private void initializeFrameBuffers() {
+        frameBuffers = new BufferedImage[2];
+        for (int i = 0; i < 2; i++) {
+            frameBuffers[i] = new BufferedImage(FRAME_WIDTH, FRAME_HEIGHT, BufferedImage.TYPE_INT_RGB);
+        }
+    }
+    
+    private void initializeTilePatterns() {
+        tilePatterns = new int[256][64]; // 256 tiles, 64 pixels per tile
+        updateTilePatterns();
+    }
+    
+    private void updateTilePatterns() {
+        if (!tilePatternsDirty) return;
+        
+        for (int tileIndex = 0; tileIndex < 256; tileIndex++) {
+            int base = tileIndex * 16;
+            
+            for (int y = 0; y < 8; y++) {
+                int b0 = readCHR(base + y);
+                int b1 = readCHR(base + y + 8);
+                
+                for (int x = 0; x < 8; x++) {
+                    int bit0 = (b0 >> (7 - x)) & 1;
+                    int bit1 = (b1 >> (7 - x)) & 1;
+                    int pixel = (bit1 << 1) | bit0;
+                    
+                    tilePatterns[tileIndex][y * 8 + x] = pixel;
+                }
+            }
+        }
+        tilePatternsDirty = false;
+    }
 
     public void clock() {
         cycle++;
@@ -57,11 +118,9 @@ public class PPU {
             if (scanline >= SCANLINES_PER_FRAME) {
                 scanline = 0;
                 frameCounter++;
-
             }
         }
     }
-
 
     public void requestRenderOnNextVBlank() {
         renderOnNextVBlank = true;
@@ -76,7 +135,6 @@ public class PPU {
         this.realTimeDisplay = false;
         this.displayWindow = null;
     }
-
 
     private void enterVBlank() throws IOException {
         cpu.requestNMI(); // Trigger NMI
@@ -102,7 +160,7 @@ public class PPU {
         
         // Update real-time display if enabled
         if (realTimeDisplay && displayWindow != null) {
-            BufferedImage frame = generateFrame();
+            BufferedImage frame = generateFrameOptimized();
             displayWindow.updateFrame(frame);
             
             // Show frame generation in debug mode
@@ -110,15 +168,11 @@ public class PPU {
                 System.out.printf("🎬 Frame %d generated and sent to display\n", frameCounter);
             }
         }
-
-
     }
-
 
     public void mapPage(int pageIndex, MemoryPage page) {
         ppuPages[pageIndex] = page;
     }
-
 
     private int readCHR(int addr) {
         // Generate a simple test pattern for tiles
@@ -133,51 +187,59 @@ public class PPU {
             return ((tileIndex + tileOffset) << 1) & 0xFF;
         }
     }
-
-    public BufferedImage generateFrame() {
-        int tilesPerRow = 32;
-        int tilesPerCol = 30;
-        int tileSize = 8;
-        int width = tilesPerRow * tileSize;
-        int height = tilesPerCol * tileSize;
-        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
-
-        Color[] palette = {
-                new Color(255, 255, 255), // 0
-                new Color(170, 170, 170), // 1
-                new Color(85, 85, 85),    // 2
-                new Color(0, 0, 0)        // 3
-        };
-
-        for (int row = 0; row < tilesPerCol; row++) {
-            for (int col = 0; col < tilesPerRow; col++) {
-                int tileIndex = ppuMemory.read(0x2000 + row * 32 + col) & 0xFF;
-                int base = tileIndex * 16;
-
-                for (int y = 0; y < 8; y++) {
-                    int b0 = readCHR(base + y);
-                    int b1 = readCHR(base + y + 8);
-
-                    for (int x = 0; x < 8; x++) {
-                        int bit0 = (b0 >> (7 - x)) & 1;
-                        int bit1 = (b1 >> (7 - x)) & 1;
-                        int pixel = (bit1 << 1) | bit0;
-
-                        image.setRGB(col * 8 + x, row * 8 + y, palette[pixel].getRGB());
+    
+    // Performance optimized frame generation using pre-computed patterns
+    public BufferedImage generateFrameOptimized() {
+        synchronized (frameBufferLock) {
+            // Get the next available buffer
+            BufferedImage frameBuffer = frameBuffers[nextBufferIndex];
+            
+            // Update tile patterns if needed
+            if (tilePatternsDirty) {
+                updateTilePatterns();
+            }
+            
+            // Get the frame buffer's raster data for direct pixel manipulation
+            int[] pixels = new int[FRAME_WIDTH * FRAME_HEIGHT];
+            
+            // Generate frame using pre-computed tile patterns
+            for (int row = 0; row < TILES_PER_COL; row++) {
+                for (int col = 0; col < TILES_PER_ROW; col++) {
+                    int tileIndex = ppuMemory.read(0x2000 + row * 32 + col) & 0xFF;
+                    
+                    // Copy pre-computed tile pattern to frame buffer
+                    for (int y = 0; y < 8; y++) {
+                        for (int x = 0; x < 8; x++) {
+                            int pixelIndex = (row * 8 + y) * FRAME_WIDTH + (col * 8 + x);
+                            int patternIndex = y * 8 + x;
+                            int pixel = tilePatterns[tileIndex][patternIndex];
+                            pixels[pixelIndex] = PALETTE_RGB[pixel];
+                        }
                     }
                 }
             }
+            
+            // Set all pixels at once for better performance
+            frameBuffer.setRGB(0, 0, FRAME_WIDTH, FRAME_HEIGHT, pixels, 0, FRAME_WIDTH);
+            
+            // Swap buffer indices
+            currentBufferIndex = nextBufferIndex;
+            nextBufferIndex = (nextBufferIndex + 1) % 2;
+            
+            return frameBuffer;
         }
+    }
 
-        return image;
+    // Legacy method for backward compatibility
+    public BufferedImage generateFrame() {
+        return generateFrameOptimized();
     }
 
     public void renderBackgroundFrame(String filename) throws IOException {
-        BufferedImage image = generateFrame();
+        BufferedImage image = generateFrameOptimized();
         ImageIO.write(image, "png", new File(filename));
         System.out.println("🖼️ Background rendered to: " + filename);
     }
-
 
     public int getScanline() {
         return scanline;
@@ -185,5 +247,10 @@ public class PPU {
 
     public int getCycle() {
         return cycle;
+    }
+    
+    // Method to mark tile patterns as dirty when CHR data changes
+    public void markTilePatternsDirty() {
+        tilePatternsDirty = true;
     }
 }
