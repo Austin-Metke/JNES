@@ -131,6 +131,26 @@ public class PPU {
         this.realTimeDisplay = false;
         this.displayWindow = null;
     }
+    
+    public void reset() {
+        // Reset PPU internal state
+        frameCounter = 0;
+        cycle = 0;
+        scanline = 0;
+        frameCount = 0;
+        lastFpsTime = System.currentTimeMillis();
+        renderOnNextVBlank = false;
+        
+        // Mark tile patterns as dirty to force regeneration
+        tilePatternsDirty = true;
+        
+        // Reset frame buffer indices
+        currentBufferIndex = 0;
+        nextBufferIndex = 1;
+        
+        // Preserve display window connection and real-time display settings
+        // (don't reset realTimeDisplay and displayWindow)
+    }
 
     private void enterVBlank() {
         cpu.requestNMI(); // Trigger NMI
@@ -157,11 +177,23 @@ public class PPU {
         // Update real-time display if enabled
         if (realTimeDisplay && displayWindow != null) {
             BufferedImage frame = generateFrameOptimized();
-            displayWindow.updateFrame(frame);
-            
-            // Show frame generation in debug mode
+            if (frame != null) {
+                displayWindow.updateFrame(frame);
+                
+                // Show frame generation in debug mode
+                if (mode == Mode.DEBUG) {
+                    System.out.printf("🎬 Frame %d generated and sent to display (size: %dx%d)\n", 
+                                    frameCounter, frame.getWidth(), frame.getHeight());
+                }
+            } else {
+                if (mode == Mode.DEBUG) {
+                    System.out.printf("⚠️ Frame %d generation failed - null frame\n", frameCounter);
+                }
+            }
+        } else {
             if (mode == Mode.DEBUG) {
-                System.out.printf("🎬 Frame %d generated and sent to display\n", frameCounter);
+                System.out.printf("⚠️ Frame %d not sent to display - realTimeDisplay: %s, displayWindow: %s\n", 
+                                frameCounter, realTimeDisplay, (displayWindow != null ? "not null" : "null"));
             }
         }
     }
@@ -171,7 +203,12 @@ public class PPU {
     }
 
     private int readCHR(int addr) {
-        // Generate a simple test pattern for tiles
+        // Read from PPU memory where CHR ROM is loaded
+        if (ppuMemory != null && addr >= 0x0000 && addr < 0x2000) {
+            return ppuMemory.read(addr) & 0xFF;
+        }
+        
+        // Fallback to test pattern if no PPU memory is available
         int tileIndex = (addr >> 4) & 0xFF; // 16 bytes per tile
         int tileOffset = addr & 0x0F;
         
@@ -201,7 +238,16 @@ public class PPU {
             // Generate frame using pre-computed tile patterns
             for (int row = 0; row < TILES_PER_COL; row++) {
                 for (int col = 0; col < TILES_PER_ROW; col++) {
-                    int tileIndex = ppuMemory.read(0x2000 + row * 32 + col) & 0xFF;
+                    // Read tile index from name table (0x2000-0x23FF)
+                    int nameTableAddr = 0x2000 + row * 32 + col;
+                    int tileIndex = 0;
+                    
+                    if (ppuMemory != null) {
+                        tileIndex = ppuMemory.read(nameTableAddr) & 0xFF;
+                    } else {
+                        // Fallback to test pattern if no PPU memory
+                        tileIndex = (row * 32 + col) & 0xFF;
+                    }
                     
                     // Copy pre-computed tile pattern to frame buffer
                     for (int y = 0; y < 8; y++) {

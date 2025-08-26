@@ -131,13 +131,37 @@ public class Main {
         for (int i = 0; i < chrRom.length && i < 0x2000; i++) {
             ppuMemory.write(i, chrRom[i] & 0xFF);
         }
+        
+        // Initialize name table with tile indices based on CHR ROM data
+        // This creates a pattern that shows the actual ROM content
+        System.out.println("🎨 Initializing name table with CHR ROM data...");
+        for (int row = 0; row < 30; row++) {
+            for (int col = 0; col < 32; col++) {
+                // Use tile indices that correspond to the loaded CHR data
+                int tileIndex = (row * 32 + col) % 256; // Wrap to 0-255 range
+                ppuMemory.write(0x2000 + row * 32 + col, tileIndex);
+            }
+        }
+        
+        // Mark tile patterns as dirty since we changed the name table
+        if (ppu != null) {
+            ppu.markTilePatternsDirty();
+        }
     }
     
     private static void resetEmulator() {
         System.out.println("🔄 Resetting emulator...");
         cpu.reset();
-        ppu = new PPU(cpu, Mode.DEBUG, ppuMemory);
-        ppu.enableRealTimeDisplay(displayWindow);
+        
+        // Instead of creating a new PPU instance, reset the existing one
+        // to preserve the display window connection and frame buffers
+        if (ppu != null) {
+            ppu.reset();
+        } else {
+            ppu = new PPU(cpu, Mode.DEBUG, ppuMemory);
+            ppu.enableRealTimeDisplay(displayWindow);
+        }
+        
         emulatorRunning = true;
     }
     

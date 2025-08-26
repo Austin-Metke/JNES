@@ -280,6 +280,7 @@ public class DisplayWindow extends JFrame {
             // Create back buffer if it doesn't exist
             if (backBuffer == null) {
                 backBuffer = new BufferedImage(WINDOW_WIDTH, WINDOW_HEIGHT, BufferedImage.TYPE_INT_RGB);
+                System.out.println("🎨 Created new back buffer: " + WINDOW_WIDTH + "x" + WINDOW_HEIGHT);
             }
             
             // Scale the new frame to the back buffer
@@ -291,6 +292,11 @@ public class DisplayWindow extends JFrame {
             
             // Mark frame as updated for the display loop
             frameUpdated = true;
+            
+            System.out.println("🖼️ Frame updated: " + newFrame.getWidth() + "x" + newFrame.getHeight() + 
+                             " -> " + WINDOW_WIDTH + "x" + WINDOW_HEIGHT);
+        } else {
+            System.out.println("⚠️ Received null frame in updateFrame");
         }
     }
     
