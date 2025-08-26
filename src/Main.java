@@ -192,6 +192,10 @@ public class Main {
             
             // Run one full frame worth of work
             for (int cpuCycle = 0; cpuCycle < CPU_CYCLES_PER_FRAME; cpuCycle++) {
+                // Execute one CPU cycle
+                cpu.clock();
+                
+                // PPU runs at 3x CPU speed
                 for (int p = 0; p < PPU_CYCLES_PER_CPU; p++) {
                     ppu.clock();
                 }
