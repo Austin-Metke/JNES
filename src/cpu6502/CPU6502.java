@@ -67,11 +67,11 @@ public class CPU6502 {
     public void pushStack(int value, Memory memory) {
         //System.out.printf("📥 PUSH $%02X → [$%04X]\n", value, 0x0100 + SP);
         memory.write(0x0100 + SP, value & 0xFF);
-        SP = (SP - 1) & 0xFF;
+        SP = (SP - 1) & 0xFF; // Wrap around to 0xFF when going below 0x00
     }
 
     public int popStack(Memory memory) {
-        SP = (SP + 1) & 0xFF;
+        SP = (SP + 1) & 0xFF; // Wrap around to 0x00 when going above 0xFF
         int val = memory.read(0x0100 + SP);
         //System.out.printf("📤 POP  $%02X ← [$%04X]\n", val, 0x0100 + SP);
         return val;
