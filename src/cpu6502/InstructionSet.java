@@ -92,7 +92,8 @@ public class InstructionSet {
 
         //Logic Instructions
         instructions.put(0x09, new ORAImmediate());
-        instructions.put(0x29, new ANDIndirectX());
+        instructions.put(0x21, new ANDIndirectX());
+        instructions.put(0x29, new ANDImmediate());
         instructions.put(0x4A, new LSRAccumulator());
         instructions.put(0x05, new ORAZeroPage());
         instructions.put(0x2A, new ROLAccumulator());
