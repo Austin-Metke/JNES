@@ -98,7 +98,7 @@ public class DisplayWindow extends JFrame {
         romSelector.addActionListener(e -> {
             if (romSelector.getSelectedItem() != null) {
                 currentRom = (String) romSelector.getSelectedItem();
-                statusLabel.setText("Selected: " + currentRom);
+                statusLabel.setText("Selected: " + new File(currentRom).getName());
             }
         });
         
@@ -153,14 +153,14 @@ public class DisplayWindow extends JFrame {
         File[] files = directory.listFiles((dir, name) -> name.toLowerCase().endsWith(".nes"));
         if (files != null) {
             for (File file : files) {
-                availableRoms.add(directory.getName() + "/" + file.getName());
+                availableRoms.add(new File(directory, file.getName()).getAbsolutePath());
             }
         }
     }
     
     private void loadSelectedRom() {
         if (currentRom != null && !currentRom.equals("-- Select ROM --")) {
-            String romPath = "ROMs/" + currentRom;
+            String romPath = currentRom;
             File romFile = new File(romPath);
             
             if (romFile.exists()) {
@@ -208,15 +208,15 @@ public class DisplayWindow extends JFrame {
                     statusLabel.setText("Loaded: " + selectedFile.getName());
                     
                     // Add to available ROMs if not already present
-                    String romName = selectedFile.getName();
-                    if (!availableRoms.contains(romName)) {
-                        availableRoms.add(romName);
+                    String romPath = selectedFile.getAbsolutePath();
+                    if (!availableRoms.contains(romPath)) {
+                        availableRoms.add(romPath);
                         romSelector.setModel(new DefaultComboBoxModel<>(availableRoms));
                     }
                     
                     // Select the new ROM
-                    romSelector.setSelectedItem(romName);
-                    currentRom = romName;
+                    romSelector.setSelectedItem(romPath);
+                    currentRom = romPath;
                     
                 } catch (Exception e) {
                     statusLabel.setText("Error loading ROM");
