@@ -53,7 +53,7 @@ public class Main {
         ClockController clock = new ClockController(1_789_773);
         //ClockController clock = new ClockController(Integer.MAX_VALUE);
 
-        PPU ppu = new PPU(cpu, Mode.DEBUG, memory);
+        PPU ppu = new PPU(cpu, Mode.DEBUG, ppuMemory);
 
         // CHR ROM goes into PPU space: $0000–$1FFF = pages 0–7
         MemoryPage chrRomPage = new RomPage(ines.chrRom, 0x0000);
