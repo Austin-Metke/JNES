@@ -40,13 +40,17 @@ public class PPU {
     }
 
 
-    public void clock() throws IOException {
+    public void clock() {
         cycle++;
         if (cycle >= CYCLES_PER_SCANLINE) {
             cycle = 0;
             scanline++;
             if (scanline == VBLANK_START_LINE) {
-                enterVBlank();
+                try {
+                    enterVBlank();
+                } catch (IOException e) {
+                    System.err.println("Error during VBlank: " + e.getMessage());
+                }
             }
             if (scanline >= SCANLINES_PER_FRAME) {
                 scanline = 0;
