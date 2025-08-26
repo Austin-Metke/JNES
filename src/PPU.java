@@ -109,11 +109,7 @@ public class PPU {
             cycle = 0;
             scanline++;
             if (scanline == VBLANK_START_LINE) {
-                try {
-                    enterVBlank();
-                } catch (IOException e) {
-                    System.err.println("Error during VBlank: " + e.getMessage());
-                }
+                enterVBlank();
             }
             if (scanline >= SCANLINES_PER_FRAME) {
                 scanline = 0;
@@ -136,7 +132,7 @@ public class PPU {
         this.displayWindow = null;
     }
 
-    private void enterVBlank() throws IOException {
+    private void enterVBlank() {
         cpu.requestNMI(); // Trigger NMI
         if (mode == Mode.DEBUG) {
             System.out.printf("🌀 VBlank — frame %d\n", frameCounter);
@@ -153,9 +149,9 @@ public class PPU {
             }
         }
 
+        // Previously optionally saved a frame here; disabled to prevent disk writes
         if (renderOnNextVBlank) {
-            renderBackgroundFrame("frame.png");
-            renderOnNextVBlank = false; // reset
+            renderOnNextVBlank = false; // reset without saving
         }
         
         // Update real-time display if enabled
@@ -235,10 +231,8 @@ public class PPU {
         return generateFrameOptimized();
     }
 
-    public void renderBackgroundFrame(String filename) throws IOException {
-        BufferedImage image = generateFrameOptimized();
-        ImageIO.write(image, "png", new File(filename));
-        System.out.println("🖼️ Background rendered to: " + filename);
+    public void renderBackgroundFrame(String filename) {
+        // Disabled: no file output in real-time mode
     }
 
     public int getScanline() {

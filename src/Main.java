@@ -145,48 +145,34 @@ public class Main {
         System.out.println("🚀 Starting emulator loop...");
         emulatorRunning = true;
         
-        int totalCycles = 0;
-        long lastSaveTime = System.currentTimeMillis();
-        int frameCount = 0;
-        long lastFrameTime = System.nanoTime();
-        final long TARGET_FRAME_TIME_NS = 16_666_667; // 60 FPS = ~16.67ms per frame
+        final int CPU_CYCLES_PER_FRAME = 29829; // Approximate NTSC CPU cycles per frame
+        final int PPU_CYCLES_PER_CPU = 3;       // PPU runs at 3x CPU speed
+        final long TARGET_FRAME_TIME_NS = 16_666_667L; // ~16.67ms
         
         while (displayWindow.isRunning() && emulatorRunning) {
-            long currentTime = System.nanoTime();
-            long elapsed = currentTime - lastFrameTime;
+            long frameStart = System.nanoTime();
             
-            // Only process frames at 60 FPS
-            if (elapsed >= TARGET_FRAME_TIME_NS) {
-                // Simulate CPU cycles (simplified)
-                totalCycles += 1;
-                
-                // Run PPU at 3x CPU speed (typical NES timing)
-                for (int i = 0; i < 3; i++) {
+            // Run one full frame worth of work
+            for (int cpuCycle = 0; cpuCycle < CPU_CYCLES_PER_FRAME; cpuCycle++) {
+                for (int p = 0; p < PPU_CYCLES_PER_CPU; p++) {
                     ppu.clock();
-                }
-
-                // Throttle to maintain timing
-                if (totalCycles >= 29829) {
-                    totalCycles = 0;
-                }
-                
-                lastFrameTime = currentTime;
-                
-                // Save a frame every 5 seconds for debugging
-                long now = System.currentTimeMillis();
-                if (now - lastSaveTime >= 5000) {
-                    try {
-                        ppu.renderBackgroundFrame("frame_" + frameCount + ".png");
-                        frameCount++;
-                        lastSaveTime = now;
-                    } catch (IOException e) {
-                        System.err.println("Error saving frame: " + e.getMessage());
-                    }
                 }
             }
             
-            // Use yield instead of sleep for better responsiveness
-            Thread.yield();
+            // Sleep the remainder to maintain 60 FPS
+            long frameElapsed = System.nanoTime() - frameStart;
+            long sleepNs = TARGET_FRAME_TIME_NS - frameElapsed;
+            if (sleepNs > 0) {
+                try {
+                    Thread.sleep(sleepNs / 1_000_000, (int) (sleepNs % 1_000_000));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            } else {
+                // If we are behind, yield to avoid hogging the CPU
+                Thread.yield();
+            }
         }
         
         System.out.println("⏹️ Emulator loop stopped");

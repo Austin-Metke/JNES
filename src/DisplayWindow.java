@@ -244,34 +244,30 @@ public class DisplayWindow extends JFrame {
     private void startDisplayLoop() {
         isRunning = true;
         Thread displayThread = new Thread(() -> {
-            long lastFrameTime = System.nanoTime();
+            long nextFrameTime = System.nanoTime();
             
             while (isRunning) {
-                long currentTime = System.nanoTime();
-                long elapsed = currentTime - lastFrameTime;
+                long now = System.nanoTime();
+                long sleepNs = nextFrameTime - now;
                 
-                if (elapsed >= FRAME_TIME_NS) {
-                    // Only repaint if we have a new frame or need to maintain FPS
-                    if (frameUpdated || elapsed >= FRAME_TIME_NS * 2) {
-                        SwingUtilities.invokeLater(() -> {
-                            displayPanel.repaint();
-                            frameUpdated = false;
-                        });
+                if (sleepNs > 0) {
+                    try {
+                        Thread.sleep(sleepNs / 1_000_000, (int) (sleepNs % 1_000_000));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
                     }
-                    
-                    lastFrameTime = currentTime;
-                    
-                    // Calculate sleep time to maintain 60FPS
-                    long sleepTime = FRAME_TIME_NS - elapsed;
-                    if (sleepTime > 0) {
-                        try {
-                            Thread.sleep(sleepTime / 1_000_000, (int) (sleepTime % 1_000_000));
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            break;
-                        }
-                    }
+                } else if (sleepNs < -FRAME_TIME_NS) {
+                    // If we are more than one frame behind, reset the schedule
+                    nextFrameTime = now;
                 }
+                
+                SwingUtilities.invokeLater(() -> {
+                    displayPanel.repaint();
+                    frameUpdated = false;
+                });
+                
+                nextFrameTime += FRAME_TIME_NS;
             }
         });
         displayThread.setDaemon(true);

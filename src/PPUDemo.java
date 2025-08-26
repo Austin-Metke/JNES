@@ -13,10 +13,7 @@ public class PPUDemo {
         for (int frame = 0; frame < 10; frame++) {
             BufferedImage image = createAnimatedFrame(frame);
             
-            // Save the frame
-            String filename = "demo_frame_" + frame + ".png";
-            ImageIO.write(image, "png", new File(filename));
-            System.out.println("📸 Generated: " + filename);
+            // Display/save disabled to avoid file outputs in this demo
             
             // Simulate 60FPS timing
             try {
