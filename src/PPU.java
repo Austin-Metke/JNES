@@ -125,11 +125,37 @@ public class PPU {
     public void enableRealTimeDisplay(DisplayWindow window) {
         this.displayWindow = window;
         this.realTimeDisplay = true;
+        if (mode == Mode.DEBUG) {
+            System.out.println("🔗 PPU real-time display enabled with window: " + 
+                             (window != null ? "connected" : "null"));
+        }
     }
     
     public void disableRealTimeDisplay() {
         this.realTimeDisplay = false;
         this.displayWindow = null;
+    }
+    
+    // Force immediate frame update (useful for ROM loading)
+    public void forceFrameUpdate() {
+        if (realTimeDisplay && displayWindow != null) {
+            BufferedImage frame = generateFrameOptimized();
+            if (frame != null) {
+                displayWindow.updateFrame(frame);
+                if (mode == Mode.DEBUG) {
+                    System.out.printf("🎬 Forced frame update - frame %d sent to display\n", frameCounter);
+                }
+            } else {
+                if (mode == Mode.DEBUG) {
+                    System.out.printf("⚠️ Forced frame update failed - null frame\n", frameCounter);
+                }
+            }
+        } else {
+            if (mode == Mode.DEBUG) {
+                System.out.printf("⚠️ Cannot force frame update - realTimeDisplay: %s, displayWindow: %s\n", 
+                                realTimeDisplay, (displayWindow != null ? "not null" : "null"));
+            }
+        }
     }
     
     public void reset() {
@@ -150,6 +176,10 @@ public class PPU {
         
         // Preserve display window connection and real-time display settings
         // (don't reset realTimeDisplay and displayWindow)
+        if (mode == Mode.DEBUG) {
+            System.out.println("🔄 PPU reset - realTimeDisplay: " + realTimeDisplay + 
+                             ", displayWindow: " + (displayWindow != null ? "connected" : "null"));
+        }
     }
 
     private void enterVBlank() {
