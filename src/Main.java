@@ -12,34 +12,27 @@ public class Main {
 
 
 
-        INESFile ines = new INESFile("smb.nes");
-        System.out.printf("📦 PRG ROM: %d bytes, CHR ROM: %d bytes, Mapper: %d\n", ines.prgSize, ines.chrSize, ines.mapper);
+        // Create a simple test setup instead of loading .nes file
+        System.out.println("🎮 Creating test PPU display...");
         Memory memory = new Memory();
         Memory ppuMemory = new Memory();
-        MemoryPage prgPage = new RomPage(ines.prgRom, 0x8000);
         MemoryPage vram = new RamPage(0x800); // 2KB VRAM
         ppuMemory.mapRange(0x2000, 0x2FFF, vram); // mirrors every 0x1000
-
 
         MemoryPage ram = new RamPage(0x800); // 2KB RAM
         memory.mapRange(0x0000, 0x1FFF, ram); // mirror into full $0000–$1FFF
 
-        if (ines.prgRom.length == 0x4000) {
-            memory.mapRange(0x8000, 0xBFFF, prgPage);
-            memory.mapRange(0xC000, 0xFFFF, prgPage); // mirror
-        } else if (ines.prgRom.length == 0x8000) {
-            memory.mapRange(0x8000, 0xFFFF, prgPage);
-        } else {
-            System.err.printf("❌ Unsupported PRG ROM size: %d\n", ines.prgRom.length);
-            return;
-        }
 
 
-
-// Set correct interrupt vectors manually
-        memory.write(0xFFFA, 0x00); memory.write(0xFFFB, 0xA0); // NMI → $A000
+        // Set correct interrupt vectors manually
+        memory.write(0xFFFA, 0x00); memory.write(0xFFFB, 0x80); // NMI → $8000
         memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0x80); // RESET → $8000
-        memory.write(0xFFFE, 0x00); memory.write(0xFFFF, 0xA0); // IRQ/BRK → $A000
+        memory.write(0xFFFE, 0x00); memory.write(0xFFFF, 0x80); // IRQ/BRK → $8000
+        
+        // Create a simple infinite loop program at $8000
+        memory.write(0x8000, 0x4C); // JMP $8000
+        memory.write(0x8001, 0x00); // low byte
+        memory.write(0x8002, 0x80); // high byte
 
 
 
@@ -54,11 +47,20 @@ public class Main {
         //ClockController clock = new ClockController(Integer.MAX_VALUE);
 
         PPU ppu = new PPU(cpu, Mode.DEBUG, ppuMemory);
+        
+        // Create and show the display window
+        DisplayWindow displayWindow = new DisplayWindow();
+        displayWindow.setVisible(true);
+        
+        // Enable real-time display
+        ppu.enableRealTimeDisplay(displayWindow);
 
-        // CHR ROM goes into PPU space: $0000–$1FFF = pages 0–7
-        MemoryPage chrRomPage = new RomPage(ines.chrRom, 0x0000);
-        for (int i = 0; i < 8; i++) {
-            ppu.mapPage(i, chrRomPage); // page 0 = $0000–$03FF, page 1 = $0400–$07FF, etc.
+        // Create a simple test pattern in VRAM
+        for (int row = 0; row < 30; row++) {
+            for (int col = 0; col < 32; col++) {
+                int tileIndex = (row * 32 + col) & 0xFF; // wrap 0–255
+                ppuMemory.write(0x2000 + row * 32 + col, tileIndex);
+            }
         }
 
 
@@ -72,24 +74,43 @@ public class Main {
 
         cpu.reset();
         int totalCycles = 0;
-        int frameTrigger = 60; // after 60 frames
 
-        while (!cpu.halted) {
-            int cycles = cpu.clock();
-            totalCycles += cycles;
-
-            for (int i = 0; i < cycles * 3; i++) {
+        // Simple loop that just runs the PPU to generate frames
+        long lastSaveTime = System.currentTimeMillis();
+        int frameCount = 0;
+        
+        while (displayWindow.isRunning()) {
+            // Simulate CPU cycles (simplified)
+            totalCycles += 1;
+            
+            // Run PPU at 3x CPU speed (typical NES timing)
+            for (int i = 0; i < 3; i++) {
                 ppu.clock();
             }
 
-            if (ppu.getFrameCounter() == frameTrigger) {
-                ppu.requestRenderOnNextVBlank();
-                break; // Optionally stop here
-            }
-
+            // Throttle to maintain timing
             if (totalCycles >= 29829) {
                 clock.throttle(totalCycles);
                 totalCycles = 0;
+            }
+            
+            // Save a frame every 5 seconds for debugging
+            long now = System.currentTimeMillis();
+            if (now - lastSaveTime >= 5000) {
+                try {
+                    ppu.renderBackgroundFrame("frame_" + frameCount + ".png");
+                    frameCount++;
+                    lastSaveTime = now;
+                } catch (IOException e) {
+                    System.err.println("Error saving frame: " + e.getMessage());
+                }
+            }
+            
+            // Small delay to prevent overwhelming the system
+            try {
+                Thread.sleep(1);
+            } catch (InterruptedException e) {
+                break;
             }
         }
 
@@ -98,6 +119,11 @@ public class Main {
         if (cpu.getMode() == Mode.DEBUG) {
             cpu.debugState(memory);
         }
+        
+        // Cleanup
+        ppu.disableRealTimeDisplay();
+        displayWindow.stop();
+        System.out.println("🎮 Emulator stopped.");
 
 
 

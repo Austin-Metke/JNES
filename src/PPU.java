@@ -27,6 +27,8 @@ public class PPU {
     private final MemoryPage[] ppuPages = new MemoryPage[16]; // 16 x 1KB = 16KB PPU address space
     private Memory ppuMemory;
     private boolean renderOnNextVBlank = false;
+    private DisplayWindow displayWindow;
+    private boolean realTimeDisplay = false;
 
     public PPU(CPU6502 cpu) {
         this.cpu = cpu;
@@ -64,6 +66,16 @@ public class PPU {
     public void requestRenderOnNextVBlank() {
         renderOnNextVBlank = true;
     }
+    
+    public void enableRealTimeDisplay(DisplayWindow window) {
+        this.displayWindow = window;
+        this.realTimeDisplay = true;
+    }
+    
+    public void disableRealTimeDisplay() {
+        this.realTimeDisplay = false;
+        this.displayWindow = null;
+    }
 
 
     private void enterVBlank() throws IOException {
@@ -87,6 +99,17 @@ public class PPU {
             renderBackgroundFrame("frame.png");
             renderOnNextVBlank = false; // reset
         }
+        
+        // Update real-time display if enabled
+        if (realTimeDisplay && displayWindow != null) {
+            BufferedImage frame = generateFrame();
+            displayWindow.updateFrame(frame);
+            
+            // Show frame generation in debug mode
+            if (mode == Mode.DEBUG) {
+                System.out.printf("🎬 Frame %d generated and sent to display\n", frameCounter);
+            }
+        }
 
 
     }
@@ -98,13 +121,20 @@ public class PPU {
 
 
     private int readCHR(int addr) {
-        int pageIndex = (addr >> 10) & 0x0F; // 1 KB per page
-        MemoryPage page = ppuPages[pageIndex];
-        if (page == null) return 0;
-        return page.read(addr);
+        // Generate a simple test pattern for tiles
+        int tileIndex = (addr >> 4) & 0xFF; // 16 bytes per tile
+        int tileOffset = addr & 0x0F;
+        
+        if (tileOffset < 8) {
+            // First 8 bytes: pattern for bit 0
+            return (tileIndex + tileOffset) & 0xFF;
+        } else {
+            // Last 8 bytes: pattern for bit 1
+            return ((tileIndex + tileOffset) << 1) & 0xFF;
+        }
     }
 
-    public void renderBackgroundFrame(String filename) throws IOException {
+    public BufferedImage generateFrame() {
         int tilesPerRow = 32;
         int tilesPerCol = 30;
         int tileSize = 8;
@@ -139,6 +169,11 @@ public class PPU {
             }
         }
 
+        return image;
+    }
+
+    public void renderBackgroundFrame(String filename) throws IOException {
+        BufferedImage image = generateFrame();
         ImageIO.write(image, "png", new File(filename));
         System.out.println("🖼️ Background rendered to: " + filename);
     }
