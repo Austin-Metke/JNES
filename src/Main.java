@@ -28,10 +28,10 @@ public class Main {
         // Enable real-time display
         ppu.enableRealTimeDisplay(displayWindow);
         
-        // Start emulator loop
+        // Start emulator loop (will run continuously)
         startEmulatorLoop();
         
-        // Cleanup
+        // Cleanup only when display window is closed
         cleanup();
     }
     
@@ -103,6 +103,12 @@ public class Main {
             // Reset the emulator with new ROM data
             resetEmulator();
             
+            // Immediately generate and display a frame to show the ROM content
+            if (ppu != null && displayWindow != null) {
+                System.out.println("🎬 Generating initial frame for display...");
+                ppu.forceFrameUpdate();
+            }
+            
             System.out.println("✅ ROM loaded successfully");
             
         } catch (Exception e) {
@@ -127,17 +133,49 @@ public class Main {
     }
     
     private static void loadChrRom(byte[] chrRom) {
-        // Load CHR ROM into PPU memory starting at $0000
-        for (int i = 0; i < chrRom.length && i < 0x2000; i++) {
-            ppuMemory.write(i, chrRom[i] & 0xFF);
+        if (chrRom != null && chrRom.length > 0) {
+            // Load CHR ROM into PPU memory starting at $0000
+            for (int i = 0; i < chrRom.length && i < 0x2000; i++) {
+                ppuMemory.write(i, chrRom[i] & 0xFF);
+            }
+        } else {
+            // If no CHR ROM, initialize with a default pattern
+            System.out.println("🎨 No CHR ROM data - initializing with default pattern...");
+            for (int i = 0; i < 0x2000; i++) {
+                ppuMemory.write(i, (i & 0xFF));
+            }
+        }
+        
+        // Initialize name table with tile indices based on available data
+        // This creates a pattern that shows the actual ROM content
+        System.out.println("🎨 Initializing name table with tile data...");
+        for (int row = 0; row < 30; row++) {
+            for (int col = 0; col < 32; col++) {
+                // Use tile indices that correspond to the loaded data
+                int tileIndex = (row * 32 + col) % 256; // Wrap to 0-255 range
+                ppuMemory.write(0x2000 + row * 32 + col, tileIndex);
+            }
+        }
+        
+        // Mark tile patterns as dirty since we changed the data
+        if (ppu != null) {
+            ppu.markTilePatternsDirty();
         }
     }
     
     private static void resetEmulator() {
         System.out.println("🔄 Resetting emulator...");
         cpu.reset();
-        ppu = new PPU(cpu, Mode.DEBUG, ppuMemory);
-        ppu.enableRealTimeDisplay(displayWindow);
+        
+        // Instead of creating a new PPU instance, reset the existing one
+        // to preserve the display window connection and frame buffers
+        if (ppu != null) {
+            ppu.reset();
+        } else {
+            ppu = new PPU(cpu, Mode.DEBUG, ppuMemory);
+            ppu.enableRealTimeDisplay(displayWindow);
+        }
+        
         emulatorRunning = true;
     }
     
@@ -176,6 +214,7 @@ public class Main {
         }
         
         System.out.println("⏹️ Emulator loop stopped");
+        emulatorRunning = false;
     }
     
     private static void cleanup() {
@@ -192,16 +231,13 @@ public class Main {
     
     // Public method to load ROM from external sources
     public static void loadRomFromPath(String romPath) {
-        if (emulatorRunning) {
-            loadRom(romPath);
-        }
+        // Remove the emulatorRunning check - ROMs can be loaded at any time
+        loadRom(romPath);
     }
     
     // Public method to reset the emulator
     public static void resetEmulatorFromExternal() {
-        if (emulatorRunning) {
-            resetEmulator();
-        }
+        resetEmulator();
     }
 
     public static void exportCHRToPNG(MemoryPage chrRom, String filename) throws IOException {
